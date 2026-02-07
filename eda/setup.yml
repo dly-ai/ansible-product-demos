@@ -1,0 +1,59 @@
+---
+# Setup file for Catalyst EDA Demo
+# This follows the pattern used by other demos in this project
+# Run with: ansible-playbook setup_demo.yml -e demo=eda
+
+user_message: |
+  Catalyst EDA Demo has been set up!
+  
+  Next steps:
+  1. Configure ServiceNow credentials in the rulebook activation extra_vars
+  2. Activate the rulebook in Event-Driven Ansible
+  3. Test with webhook or syslog events
+  
+  See eda/README.md for detailed instructions.
+
+controller_projects:
+  - name: Catalyst EDA Demo
+    organization: Ansible Product Demos (APD)
+    scm_type: git
+    scm_url: "{{ scm_url | default('https://github.com/ansible/product-demos') }}"
+    scm_branch: "{{ scm_branch | default('main') }}"
+    update_project: true
+    wait: false
+    controller_request_timeout: 20
+    controller_configuration_async_retries: 40
+    # Use networking execution environment or create EDA-specific one
+    default_environment: Networking Execution Environment
+
+controller_inventory_sources:
+  - name: Catalyst EDA Inventory Source
+    source: scm
+    inventory: Ansible Product Demos Inventory
+    overwrite: true
+    source_project: Catalyst EDA Demo
+    source_path: eda/inventory.yml
+
+controller_rulebook_activations:
+  - name: Catalyst Interface Remediation
+    organization: Ansible Product Demos (APD)
+    rulebook: eda/rulebooks/catalyst_interface_rulebook.yml
+    inventory: Ansible Product Demos Inventory
+    project: Catalyst EDA Demo
+    execution_environment: Networking Execution Environment
+    # Extra variables should be set via AAP UI or credentials
+    # These are placeholders - update in AAP UI after creation
+    extra_vars:
+      sn_instance: "https://dev339478.service-now.com"
+      sn_user: "admin"
+      sn_pass: "Password123!"  # Consider using AAP Credentials instead
+      approval_granted: true
+      notification_email: "admin@example.com"  # UPDATE THIS with your email
+      # Optional SMTP configuration (if not using default localhost)
+      # smtp_host: "smtp.gmail.com"
+      # smtp_port: 587
+      # smtp_user: "your-email@gmail.com"
+      # smtp_password: "your-app-password"
+      # smtp_use_tls: true
+    restart_policy: always
+    enabled: false  # Set to true after configuring credentials

@@ -1,0 +1,10 @@
+{
+  "alert_type": "interface_down",
+  "interface_name": "GigabitEthernet1/0/1",
+  "title": "Interface Down Alert - Catalyst 9000",
+  "description": "Interface GigabitEthernet1/0/1 detected as down. Remediation required.",
+  "approval_granted": true,
+  "severity": "high",
+  "source": "dynatrace",
+  "timestamp": "2024-01-15T10:30:00Z"
+}

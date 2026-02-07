@@ -1,0 +1,38 @@
+---
+# ServiceNow PDI Configuration
+sn_instance: "https://dev339478.service-now.com"  # Your PDI instance URL
+sn_user: "admin"  # Your ServiceNow username
+sn_pass: "Password123!"  # Your ServiceNow password
+
+# Approval Control
+approval_granted: true  # Set to false to test denial flow
+
+# Network Device Configuration
+catalyst_host: "sandbox-iosxe-latest-1.cisco.com"
+catalyst_connection: "ansible.netcommon.network_cli"
+catalyst_network_os: "cisco.ios.ios"
+
+# Interface and VLAN Configuration
+default_interface: "GigabitEthernet1/0/1"  # Default interface for remediation
+default_vlan: "100"  # Default VLAN for remediation
+
+# Notification Configuration
+notification_email: "admin@example.com"  # Email address for notifications (update this)
+notification_email_subject: "Catalyst Interface Remediation Blocked"
+# Email server configuration (if using SMTP)
+smtp_host: "smtp.gmail.com"  # Update with your SMTP server
+smtp_port: 587
+smtp_user: ""  # Optional: SMTP username if authentication required
+smtp_password: ""  # Optional: SMTP password if authentication required
+smtp_use_tls: true
+
+# CLI Commands to Gather
+cli_commands:
+  - "show interface {{ affected_interface | default(default_interface) }}"
+  - "show vlan brief"
+  - "show ip interface brief"
+  - "show version"
+
+# ServiceNow Table API Configuration
+sn_table_api: "/api/now/table/incident"
+sn_attachment_api: "/api/now/attachment/file"

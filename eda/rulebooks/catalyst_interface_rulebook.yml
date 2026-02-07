@@ -1,0 +1,73 @@
+---
+# EDA Rulebook for Catalyst 9000 Interface Remediation
+# This rulebook listens for interface down events and triggers remediation workflows
+
+- name: Listen for Catalyst Interface Down Events
+  hosts: all
+  sources:
+    # Source 1: Syslog listener for interface down messages
+    - name: syslog_listener
+      ansible.eda.syslog:
+        host: 0.0.0.0
+        port: 514
+        # Filter for interface down messages from Catalyst devices
+        # Example syslog: "Interface GigabitEthernet1/0/1, changed state to down"
+    
+    # Source 2: Webhook listener for Dynatrace-style alerts
+    - name: webhook_listener
+      ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+        # Accepts JSON payloads with interface alert information
+
+  rules:
+    # Rule 1: Handle syslog interface down events
+    - name: Interface Down from Syslog
+      condition:
+        all:
+          - event.syslog_message is defined
+          - "'interface' in event.syslog_message or 'Interface' in event.syslog_message"
+          - "'down' in event.syslog_message or 'Down' in event.syslog_message or 'DOWN' in event.syslog_message"
+      action:
+        run_playbook:
+          name: eda/playbooks/remediate_and_close.yml
+        vars:
+          # Extract interface name from syslog message (basic parsing)
+          affected_interface: "{{ event.syslog_message | regex_search('(GigabitEthernet|FastEthernet|TenGigabitEthernet)[0-9/]+') | default('GigabitEthernet1/0/1') }}"
+          event_source: "syslog"
+          event_message: "{{ event.syslog_message }}"
+          approval_granted: "{{ approval_granted | default(true) }}"
+          # Create ServiceNow incident with syslog details
+          incident_short_description: "Interface Down Alert: {{ affected_interface }}"
+          incident_description: "Interface {{ affected_interface }} reported as down via syslog: {{ event.syslog_message }}"
+
+    # Rule 2: Handle webhook payloads (Dynatrace-style)
+    - name: Interface Alert from Webhook
+      condition:
+        - event.payload is defined
+        - event.payload.alert_type is defined
+        - event.payload.alert_type == "interface_down"
+      action:
+        run_playbook:
+          name: eda/playbooks/remediate_and_close.yml
+        vars:
+          affected_interface: "{{ event.payload.interface_name | default('GigabitEthernet1/0/1') }}"
+          event_source: "webhook"
+          event_message: "{{ event.payload | to_json }}"
+          approval_granted: "{{ event.payload.approval_granted | default(approval_granted | default(true)) }}"
+          incident_short_description: "{{ event.payload.title | default('Interface Down Alert') }}"
+          incident_description: "{{ event.payload.description | default('Interface alert received via webhook') }}"
+
+    # Rule 3: Conditional approval check - if denied, run notification
+    - name: Remediation Denied - Send Notification
+      condition:
+        - event.approval_granted is defined
+        - event.approval_granted == false
+      action:
+        run_playbook:
+          name: eda/playbooks/notify_no_approval.yml
+        vars:
+          affected_interface: "{{ event.affected_interface | default('GigabitEthernet1/0/1') }}"
+          event_source: "{{ event.event_source | default('unknown') }}"
+          event_message: "{{ event.event_message | default('No message') }}"
+          incident_short_description: "{{ event.incident_short_description | default('Interface Down - Remediation Blocked') }}"

@@ -1,0 +1,13 @@
+---
+# Ansible Collection Requirements for Catalyst EDA Demo
+collections:
+  - name: cisco.ios
+    version: ">=7.0.0"
+  - name: ansible.eda
+    version: ">=2.1.0"
+  - name: ansible.netcommon
+    version: ">=6.0.0"
+  - name: ansible.builtin
+    version: ">=2.14.0"
+  - name: community.general
+    version: ">=8.0.0"  # Required for email notifications

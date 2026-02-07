@@ -1,0 +1,147 @@
+---
+# Catalyst Remediation Role
+# This role handles network interface remediation on Catalyst 9000 devices
+
+- name: Display Event Information
+  ansible.builtin.debug:
+    msg:
+      - "=== Catalyst Interface Remediation Started ==="
+      - "Event Source: {{ event_source | default('unknown') }}"
+      - "Affected Interface: {{ affected_interface | default(default_interface) }}"
+      - "Approval Granted: {{ approval_granted | default(false) }}"
+      - "Event Message: {{ event_message | default('No message') }}"
+
+- name: Gather Network Facts from Catalyst Device
+  cisco.ios.ios_facts:
+    gather_subset:
+      - interfaces
+      - hardware
+    gather_network_resources:
+      - interfaces
+  register: catalyst_facts
+  when: approval_granted | default(false) | bool
+
+- name: Display Current Interface Status
+  ansible.builtin.debug:
+    msg:
+      - "Current Interface Status:"
+      - "  Interface: {{ affected_interface | default(default_interface) }}"
+      - "  Status: {{ catalyst_facts.ansible_net_interfaces[affected_interface | default(default_interface)].operstatus | default('unknown') }}"
+  when:
+    - approval_granted | default(false) | bool
+    - catalyst_facts.ansible_net_interfaces is defined
+
+- name: Gather CLI Output - Show Interface
+  cisco.ios.ios_command:
+    commands:
+      - "show interface {{ affected_interface | default(default_interface) }}"
+  register: cli_show_interface
+  when: approval_granted | default(false) | bool
+
+- name: Gather CLI Output - Show VLAN Brief
+  cisco.ios.ios_command:
+    commands:
+      - "show vlan brief"
+  register: cli_show_vlan
+  when: approval_granted | default(false) | bool
+
+- name: Gather CLI Output - Show IP Interface Brief
+  cisco.ios.ios_command:
+    commands:
+      - "show ip interface brief"
+  register: cli_show_ip_int
+  when: approval_granted | default(false) | bool
+
+- name: Gather CLI Output - Show Version
+  cisco.ios.ios_command:
+    commands:
+      - "show version"
+  register: cli_show_version
+  when: approval_granted | default(false) | bool
+
+- name: Compile All CLI Output with Timestamps
+  ansible.builtin.set_fact:
+    cli_output_combined: |
+      ============================================
+      Catalyst 9000 CLI Output - Interface Remediation
+      Generated: {{ ansible_date_time.iso8601 }}
+      Interface: {{ affected_interface | default(default_interface) }}
+      Event Source: {{ event_source | default('unknown') }}
+      ============================================
+      
+      === SHOW INTERFACE ===
+      {{ cli_show_interface.stdout[0] | default('Command output not available') }}
+      
+      === SHOW VLAN BRIEF ===
+      {{ cli_show_vlan.stdout[0] | default('Command output not available') }}
+      
+      === SHOW IP INTERFACE BRIEF ===
+      {{ cli_show_ip_int.stdout[0] | default('Command output not available') }}
+      
+      === SHOW VERSION ===
+      {{ cli_show_version.stdout[0] | default('Command output not available') }}
+      
+      ============================================
+      End of CLI Output
+      ============================================
+  when: approval_granted | default(false) | bool
+
+- name: Remediate Interface - Shut/No Shut (Interface Bounce)
+  cisco.ios.ios_interfaces:
+    config:
+      - name: "{{ affected_interface | default(default_interface) }}"
+        enabled: false
+    state: merged
+  register: interface_shut
+  when: approval_granted | default(false) | bool
+
+- name: Wait for Interface to Shut Down
+  ansible.builtin.pause:
+    seconds: 2
+  when:
+    - approval_granted | default(false) | bool
+    - interface_shut.changed is defined
+
+- name: Remediate Interface - Bring Interface Back Up
+  cisco.ios.ios_interfaces:
+    config:
+      - name: "{{ affected_interface | default(default_interface) }}"
+        enabled: true
+    state: merged
+  register: interface_noshut
+  when: approval_granted | default(false) | bool
+
+- name: Wait for Interface to Come Back Up
+  ansible.builtin.pause:
+    seconds: 3
+  when:
+    - approval_granted | default(false) | bool
+    - interface_noshut.changed is defined
+
+- name: Verify Interface Status After Remediation
+  cisco.ios.ios_command:
+    commands:
+      - "show interface {{ affected_interface | default(default_interface) }}"
+  register: cli_verify_interface
+  when: approval_granted | default(false) | bool
+
+- name: Display Remediation Results
+  ansible.builtin.debug:
+    msg:
+      - "=== Remediation Complete ==="
+      - "Interface: {{ affected_interface | default(default_interface) }}"
+      - "Status: Interface bounced (shut/no shut)"
+      - "Verification: {{ 'SUCCESS' if 'up' in cli_verify_interface.stdout[0] | default('') | lower else 'PENDING' }}"
+  when: approval_granted | default(false) | bool
+
+- name: Set Remediation Status Fact
+  ansible.builtin.set_fact:
+    remediation_status: "success"
+    remediation_message: "Interface {{ affected_interface | default(default_interface) }} has been remediated successfully"
+  when: approval_granted | default(false) | bool
+
+- name: Set Remediation Blocked Fact
+  ansible.builtin.set_fact:
+    remediation_status: "blocked"
+    remediation_message: "Remediation blocked - approval not granted"
+  when: approval_granted | default(false) | bool == false

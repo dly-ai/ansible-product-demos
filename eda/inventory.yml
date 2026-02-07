@@ -1,0 +1,17 @@
+---
+# Inventory for Catalyst 9000 EDA Demo
+all:
+  children:
+    catalyst:
+      hosts:
+        sandbox-iosxe-latest-1.cisco.com:
+          ansible_host: devnetsandboxiosxec9k.cisco.com
+          ansible_user: dly
+          ansible_password: 9Cnz-V5_bq2U
+          ansible_ssh_password: 9Cnz-V5_bq2U
+          ansible_port: 22
+          ansible_network_os: cisco.ios.ios
+          ansible_connection: ansible.netcommon.network_cli
+          ansible_become: false
+          ansible_become_method: enable
+          ansible_become_password: "{{ ansible_password }}"

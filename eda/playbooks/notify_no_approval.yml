@@ -1,0 +1,126 @@
+---
+# Notification Playbook for Approval Denial
+# This playbook sends notifications when remediation is blocked due to lack of approval
+
+- name: Create ServiceNow Incident for Blocked Remediation
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Include ServiceNow Integration Role - Create Incident
+      ansible.builtin.include_role:
+        name: service_now_integration
+        tasks_from: main
+      vars:
+        incident_short_description: "{{ incident_short_description | default('Interface Down - Remediation Blocked') }}"
+        incident_description: "{{ incident_description | default('Interface remediation was requested but blocked due to lack of approval. Manual intervention required. Interface: ' + (affected_interface | default('GigabitEthernet1/0/1'))) }}"
+
+- name: Send Notification - Debug Output
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Display Notification Message
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "REMEDIATION BLOCKED - NOTIFICATION"
+          - "============================================"
+          - "Interface: {{ affected_interface | default('GigabitEthernet1/0/1') }}"
+          - "Event Source: {{ event_source | default('unknown') }}"
+          - "Status: Remediation blocked - approval not granted"
+          - "Action Required: Manual intervention needed"
+          - "ServiceNow Incident: {{ hostvars['localhost']['sn_incident_number'] | default('N/A') }}"
+          - "============================================"
+
+- name: Send Notification - Email
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Prepare Email Body
+      ansible.builtin.set_fact:
+        email_body: |
+          Remediation Blocked - Manual Intervention Required
+          
+          Interface: {{ affected_interface | default('GigabitEthernet1/0/1') }}
+          Event Source: {{ event_source | default('unknown') }}
+          Reason: Approval not granted
+          ServiceNow Incident: {{ hostvars['localhost']['sn_incident_number'] | default('N/A') }}
+          
+          Manual intervention required to resolve the interface issue.
+          
+          Please log into ServiceNow to review and resolve the incident:
+          {{ sn_instance | default('https://dev339478.service-now.com') }}/nav_to.do?uri=incident.do?sys_id={{ hostvars['localhost']['sn_incident_sys_id'] | default('') }}
+          
+          This is an automated notification from Ansible Event-Driven Automation.
+
+    - name: Send Email Notification via SMTP
+      community.general.mail:
+        host: "{{ smtp_host | default('localhost') }}"
+        port: "{{ smtp_port | default(25) }}"
+        username: "{{ smtp_user | default(omit) }}"
+        password: "{{ smtp_password | default(omit) }}"
+        to: "{{ notification_email }}"
+        subject: "{{ notification_email_subject | default('Catalyst Interface Remediation Blocked') }} - Interface {{ affected_interface | default('GigabitEthernet1/0/1') }}"
+        body: "{{ email_body }}"
+        secure: "{{ 'starttls' if smtp_use_tls | default(false) | bool else 'never' }}"
+      register: email_notification
+      when:
+        - notification_email is defined
+        - notification_email != ""
+      ignore_errors: true
+      no_log: false
+
+    - name: Send Email Notification via Debug (Fallback if SMTP not configured)
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "EMAIL NOTIFICATION (Debug Mode - SMTP not configured)"
+          - "============================================"
+          - "To: {{ notification_email }}"
+          - "Subject: {{ notification_email_subject | default('Catalyst Interface Remediation Blocked') }} - Interface {{ affected_interface | default('GigabitEthernet1/0/1') }}"
+          - ""
+          - "Body:"
+          - "{{ email_body }}"
+          - ""
+          - "Note: Configure SMTP settings in vars.yml or rulebook extra_vars to send actual emails"
+          - "============================================"
+      when:
+        - notification_email is defined
+        - notification_email != ""
+        - email_notification is not defined or email_notification.failed is defined
+
+    - name: Display Email Notification Status
+      ansible.builtin.debug:
+        msg: "Email notification sent successfully to {{ notification_email }}"
+      when:
+        - email_notification is defined
+        - email_notification.failed is not defined
+
+- name: Display Final Notification Summary
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Notification Summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "NOTIFICATION WORKFLOW COMPLETE"
+          - "============================================"
+          - "Interface: {{ affected_interface | default('GigabitEthernet1/0/1') }}"
+          - "ServiceNow Incident: {{ hostvars['localhost']['sn_incident_number'] | default('N/A') }}"
+          - "Notifications Sent:"
+          - "  - Debug Output: ✓"
+          - "  - Email: {{ '✓' if notification_email is defined and notification_email != '' and (email_notification is defined and email_notification.failed is not defined) else '⚠ (check SMTP config or see debug output)' }}"
+          - "  - Email Address: {{ notification_email | default('not configured') }}"
+          - "============================================"

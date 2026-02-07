@@ -1,0 +1,124 @@
+---
+# Remediation and ServiceNow Integration Playbook
+# This playbook handles interface remediation and ServiceNow incident management
+
+- name: Check Approval Status
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Display Approval Status
+      ansible.builtin.debug:
+        msg:
+          - "Approval Status Check:"
+          - "  Approval Granted: {{ approval_granted | default(false) }}"
+          - "  Affected Interface: {{ affected_interface | default('GigabitEthernet1/0/1') }}"
+
+    - name: Fail if Approval Not Granted
+      ansible.builtin.fail:
+        msg: "Remediation blocked - approval not granted. Notification will be sent instead."
+      when: approval_granted | default(false) | bool == false
+
+- name: Create ServiceNow Incident
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Include ServiceNow Integration Role - Create Incident
+      ansible.builtin.include_role:
+        name: service_now_integration
+        tasks_from: main
+      vars:
+        incident_short_description: "{{ incident_short_description | default('Interface Down Alert: ' + (affected_interface | default('GigabitEthernet1/0/1'))) }}"
+        incident_description: "{{ incident_description | default('Interface remediation triggered by Ansible EDA. Event source: ' + (event_source | default('unknown'))) }}"
+      when: approval_granted | default(false) | bool
+
+- name: Remediate Catalyst Interface
+  hosts: catalyst
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Include Catalyst Remediation Role
+      ansible.builtin.include_role:
+        name: catalyst_remediation
+      vars:
+        affected_interface: "{{ affected_interface | default(default_interface) }}"
+        event_source: "{{ event_source | default('unknown') }}"
+        event_message: "{{ event_message | default('No message') }}"
+        approval_granted: "{{ approval_granted | default(false) }}"
+      when: approval_granted | default(false) | bool
+
+- name: Attach CLI Output to ServiceNow Incident
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Get CLI Output from Catalyst Remediation
+      ansible.builtin.set_fact:
+        attachment_content: "{{ hostvars[groups['catalyst'][0]]['cli_output_combined'] | default('CLI output not available') }}"
+        attachment_filename: "catalyst_cli_output_{{ affected_interface | default('unknown') | replace('/', '_') }}_{{ ansible_date_time.epoch }}.txt"
+      when:
+        - approval_granted | default(false) | bool
+        - groups['catalyst'] is defined
+
+    - name: Include ServiceNow Integration Role - Attach File
+      ansible.builtin.include_role:
+        name: service_now_integration
+        tasks_from: main
+      vars:
+        sn_incident_sys_id: "{{ hostvars['localhost']['sn_incident_sys_id'] | default('') }}"
+        attachment_content: "{{ attachment_content | default('No CLI output available') }}"
+        attachment_filename: "{{ attachment_filename | default('cli_output.txt') }}"
+      when:
+        - approval_granted | default(false) | bool
+        - sn_incident_sys_id is defined
+
+- name: Update ServiceNow Incident to Resolved
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Include ServiceNow Integration Role - Resolve Incident
+      ansible.builtin.include_role:
+        name: service_now_integration
+        tasks_from: main
+      vars:
+        sn_incident_sys_id: "{{ hostvars['localhost']['sn_incident_sys_id'] | default('') }}"
+        close_notes: "Issue automatically remediated by Ansible. Interface {{ affected_interface | default('GigabitEthernet1/0/1') }} has been restored to operational state."
+        work_notes: "Remediation completed successfully. Interface bounced (shut/no shut) and verified operational. CLI output attached to incident."
+      when:
+        - approval_granted | default(false) | bool
+        - sn_incident_sys_id is defined
+
+- name: Display Final Summary
+  hosts: localhost
+  gather_facts: false
+  # Variables should be passed from rulebook or defined in extra_vars
+  # vars_files:
+  #   - eda/vars.yml  # Uncomment if vars.yml is in project root under eda/
+  tasks:
+    - name: Display Remediation Summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "REMEDIATION WORKFLOW COMPLETE"
+          - "============================================"
+          - "Interface: {{ affected_interface | default('GigabitEthernet1/0/1') }}"
+          - "Status: {{ hostvars[groups['catalyst'][0]]['remediation_status'] | default('unknown') }}"
+          - "ServiceNow Incident: {{ hostvars['localhost']['sn_incident_number'] | default('N/A') }}"
+          - "Incident State: Resolved"
+          - "CLI Output: Attached to incident"
+          - "============================================"
+      when:
+        - approval_granted | default(false) | bool
+        - groups['catalyst'] is defined

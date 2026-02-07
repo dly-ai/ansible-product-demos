@@ -1,0 +1,7 @@
+---
+# ServiceNow Integration Role Defaults
+sn_instance: "{{ sn_instance | default('https://dev12345.service-now.com') }}"
+sn_user: "{{ sn_user | default('admin') }}"
+sn_pass: "{{ sn_pass | default('') }}"
+sn_table_api: "{{ sn_table_api | default('/api/now/table/incident') }}"
+sn_attachment_api: "{{ sn_attachment_api | default('/api/now/attachment/file') }}"

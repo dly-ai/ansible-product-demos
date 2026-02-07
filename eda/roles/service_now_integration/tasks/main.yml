@@ -1,0 +1,111 @@
+---
+# ServiceNow Integration Role
+# This role handles all ServiceNow REST API operations
+
+- name: Create ServiceNow Incident
+  ansible.builtin.uri:
+    url: "{{ sn_instance }}{{ sn_table_api }}"
+    method: POST
+    user: "{{ sn_user }}"
+    password: "{{ sn_pass }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      short_description: "{{ incident_short_description | default('Network Interface Issue') }}"
+      description: "{{ incident_description | default('Interface remediation triggered by Ansible EDA') }}"
+      category: "Network"
+      subcategory: "Interface"
+      impact: "2"
+      urgency: "2"
+      state: "2"  # In Progress
+      work_notes: "Incident created automatically by Ansible Event-Driven Automation"
+    status_code: [200, 201]
+  register: sn_incident_create
+  when: incident_short_description is defined
+  no_log: false  # Set to true in production to hide credentials
+
+- name: Display Created Incident Details
+  ansible.builtin.debug:
+    msg:
+      - "ServiceNow Incident Created:"
+      - "  Number: {{ sn_incident_create.json.result.number }}"
+      - "  Sys ID: {{ sn_incident_create.json.result.sys_id }}"
+      - "  State: {{ sn_incident_create.json.result.state }}"
+  when: sn_incident_create.json.result is defined
+
+- name: Set Incident Variables for Later Use
+  ansible.builtin.set_fact:
+    sn_incident_number: "{{ sn_incident_create.json.result.number }}"
+    sn_incident_sys_id: "{{ sn_incident_create.json.result.sys_id }}"
+  when: sn_incident_create.json.result is defined
+
+- name: Create Temporary File for CLI Output
+  ansible.builtin.copy:
+    content: "{{ attachment_content | default('No CLI output available') }}"
+    dest: "/tmp/{{ attachment_filename | default('cli_output.txt') }}"
+    mode: '0644'
+  when:
+    - sn_incident_sys_id is defined
+    - attachment_content is defined
+  register: temp_file
+  delegate_to: localhost
+
+- name: Attach CLI Output File to ServiceNow Incident using curl
+  ansible.builtin.command:
+    cmd: |
+      curl -X POST "{{ sn_instance }}{{ sn_attachment_api }}" \
+        -u "{{ sn_user }}:{{ sn_pass }}" \
+        -H "Accept: application/json" \
+        -F "table_name=incident" \
+        -F "table_sys_id={{ sn_incident_sys_id }}" \
+        -F "file=@{{ temp_file.dest }}"
+  register: sn_attachment
+  when:
+    - sn_incident_sys_id is defined
+    - attachment_content is defined
+    - temp_file is defined
+  no_log: false
+  changed_when: false
+  failed_when: sn_attachment.rc != 0
+
+- name: Display Attachment Details
+  ansible.builtin.debug:
+    msg:
+      - "File attached to incident {{ sn_incident_number }}:"
+      - "  File: {{ attachment_filename | default('cli_output.txt') }}"
+      - "  Attachment Sys ID: {{ sn_attachment.json.result.sys_id | default('N/A') }}"
+  when:
+    - sn_attachment.json.result is defined
+    - sn_incident_sys_id is defined
+
+- name: Update ServiceNow Incident to Resolved
+  ansible.builtin.uri:
+    url: "{{ sn_instance }}{{ sn_table_api }}/{{ sn_incident_sys_id }}"
+    method: PUT
+    user: "{{ sn_user }}"
+    password: "{{ sn_pass }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      state: "6"  # Resolved
+      close_code: "Solved (Work Around)"
+      close_notes: "{{ close_notes | default('Issue automatically remediated by Ansible Event-Driven Automation. Interface has been restored to operational state.') }}"
+      work_notes: "{{ work_notes | default('Remediation completed successfully. All network interfaces verified operational.') }}"
+    status_code: [200, 204]
+  register: sn_incident_update
+  when: sn_incident_sys_id is defined
+
+- name: Display Incident Resolution Details
+  ansible.builtin.debug:
+    msg:
+      - "ServiceNow Incident Updated:"
+      - "  Number: {{ sn_incident_number }}"
+      - "  State: Resolved (6)"
+      - "  Close Notes: {{ close_notes | default('Automatically remediated by Ansible') }}"
+  when: sn_incident_sys_id is defined
